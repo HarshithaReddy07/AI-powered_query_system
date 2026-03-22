@@ -1,0 +1,214 @@
+import json
+import boto3
+import re
+
+# AWS Clients
+bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
+dynamodb = boto3.resource("dynamodb")
+lambda_client = boto3.client("lambda")
+
+MODEL_ID = "meta.llama3-70b-instruct-v1:0"
+SCHEMA_TABLE = "db_schema_metadata"
+LAMBDA2_NAME = "mssql_lambda_2"
+
+schema_table = dynamodb.Table(SCHEMA_TABLE)
+
+FORBIDDEN_KEYWORDS = [
+    "drop", "delete", "update",
+    "insert", "alter", "truncate",
+    "exec", "execute", "merge",
+    "create"
+]
+
+
+def lambda_handler(event, context):
+    try:
+        body = json.loads(event.get("body", "{}"))
+        user_input = body.get("query")
+
+        if not user_input:
+            return response(400, {"error": "Query is required"})
+
+        # 1️⃣ Find relevant tables
+        relevant_tables = find_relevant_tables(user_input)
+
+        # 2️⃣ Build schema context
+        schema_context = build_schema_context(relevant_tables)
+
+        # 3️⃣ Generate SQL (MSSQL aware)
+        sql_query = generate_sql(user_input, schema_context)
+
+        # 4️⃣ Validate SQL
+        if not is_safe_sql(sql_query):
+            return response(403, {
+                "status": "blocked",
+                "generated_sql": sql_query
+            })
+
+        # 5️⃣ Invoke Lambda 2
+        lambda2_payload = {
+            "query": sql_query
+        }
+
+        lambda2_response = lambda_client.invoke(
+            FunctionName=LAMBDA2_NAME,
+            InvocationType="RequestResponse",
+            Payload=json.dumps(lambda2_payload)
+        )
+
+        lambda2_result = json.loads(
+            lambda2_response["Payload"].read()
+        )
+
+        return response(200, {
+            "status": "success",
+            "generated_sql": sql_query,
+            "db_response": lambda2_result
+        })
+
+    except Exception as e:
+        import traceback
+        print("FULL ERROR:", traceback.format_exc())
+        return response(500, {"error": str(e)})
+
+
+# -----------------------------------
+# Find Relevant Tables
+# -----------------------------------
+def find_relevant_tables(user_input):
+
+    words = user_input.lower()
+    tables = []
+
+    response = dynamodb.meta.client.scan(
+        TableName=SCHEMA_TABLE,
+        ProjectionExpression="table_name"
+    )
+
+    for item in response["Items"]:
+        table_name = item["table_name"]
+        if table_name.lower() in words:
+            tables.append(table_name)
+
+    return tables
+
+
+# -----------------------------------
+# Build Schema Context
+# -----------------------------------
+def build_schema_context(tables):
+
+    if not tables:
+        response = dynamodb.meta.client.scan(TableName=SCHEMA_TABLE)
+        tables = [item["table_name"] for item in response["Items"]]
+
+    schema_parts = []
+
+    for table in tables:
+        item = schema_table.get_item(Key={"table_name": table}).get("Item")
+
+        if item:
+            columns = ", ".join(item["columns"])
+            schema_parts.append(f"Table {table} has columns: {columns}")
+
+            if "relationships" in item and item["relationships"]:
+                rels = "; ".join(item["relationships"])
+                schema_parts.append(f"Relationships: {rels}")
+
+    return "\n".join(schema_parts)
+
+
+# -----------------------------------
+# Generate SQL (MSSQL STRICT)
+# -----------------------------------
+def generate_sql(user_input, schema_context):
+
+    prompt = f"""
+You are a strict SQL generator for Microsoft SQL Server (MSSQL).
+
+Database engine: Microsoft SQL Server.
+
+IMPORTANT RULES:
+- Only generate SELECT queries.
+- Use TOP for limiting rows (example: SELECT TOP 5 ...).
+- DO NOT use LIMIT.
+- DO NOT use MySQL or PostgreSQL syntax.
+- Use proper JOIN syntax for MSSQL.
+- No explanation.
+- No greeting.
+- No extra text.
+- If schema does not support the request, return INVALID_SCHEMA.
+- Always alias aggregate functions like COUNT, SUM, AVG.
+- Example:
+  SELECT COUNT(*) AS total_count FROM table_name;
+
+
+Use ONLY the following schema:
+
+{schema_context}
+
+User request:
+{user_input}
+
+SQL:
+"""
+
+    request_body = {
+        "prompt": prompt,
+        "max_gen_len": 300,
+        "temperature": 0.1,
+        "top_p": 0.9
+    }
+
+    response_bedrock = bedrock.invoke_model(
+        modelId=MODEL_ID,
+        contentType="application/json",
+        accept="application/json",
+        body=json.dumps(request_body)
+    )
+
+    result = json.loads(response_bedrock["body"].read())
+    return result.get("generation", "").strip()
+
+
+# -----------------------------------
+# SQL Safety Check
+# -----------------------------------
+def is_safe_sql(query):
+
+    if not query:
+        return False
+
+    if query == "INVALID_SCHEMA":
+        return False
+
+    lower_query = query.lower()
+
+    # Must start with SELECT
+    if not lower_query.startswith("select"):
+        return False
+
+    # Block forbidden keywords
+    if any(keyword in lower_query for keyword in FORBIDDEN_KEYWORDS):
+        return False
+
+    # Block LIMIT (MySQL/Postgres)
+    if "limit" in lower_query:
+        return False
+
+    # Block multiple statements
+    if ";" in lower_query[:-1]:
+        return False
+
+    return True
+
+
+# -----------------------------------
+# Standard Response
+# -----------------------------------
+def response(status_code, body):
+    return {
+        "statusCode": status_code,
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps(body)
+    }

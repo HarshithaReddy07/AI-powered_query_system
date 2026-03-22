@@ -1,0 +1,146 @@
+body {
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+  background: linear-gradient(135deg, #0f172a, #1e293b);
+  color: #f9fafb;
+}
+
+.app-container {
+  min-height: 100vh;
+  padding: 40px 60px;
+  box-sizing: border-box;
+}
+
+.title {
+  text-align: center;
+  font-size: 42px;
+  margin-bottom: 40px;
+}
+
+.dashboard {
+  display: flex;
+  gap: 40px;
+  min-height: 75vh;
+}
+
+/* LEFT PANEL */
+.left-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+/* RIGHT PANEL */
+.right-panel {
+  flex: 2;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 30px;
+  border-radius: 20px;
+  backdrop-filter: blur(18px);
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  border: 1px solid rgba(255,255,255,0.05);
+}
+
+/* CARD SECTION */
+.card-section {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 25px;
+  border-radius: 20px;
+  backdrop-filter: blur(18px);
+}
+
+.input,
+.textarea {
+  width: 100%;
+  padding: 12px;
+  border-radius: 12px;
+  border: none;
+  background: #1e293b;
+  color: white;
+  margin-bottom: 12px;
+}
+
+.textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.btn {
+  padding: 10px 20px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn.primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.btn.success {
+  background: #10b981;
+  color: white;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.error {
+  color: #f87171;
+  margin-bottom: 10px;
+}
+
+.sql-box {
+  background: #0b1220;
+  padding: 15px;
+  border-radius: 12px;
+  margin-bottom: 25px;
+  overflow-x: auto;
+  color: #34d399;
+}
+
+.table-wrapper {
+  flex-grow: 1;
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th,
+td {
+  padding: 10px;
+  border-bottom: 1px solid #374151;
+  text-align: left;
+}
+
+th {
+  background: #1e293b;
+  font-weight: 600;
+}
+
+tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.empty-state {
+  margin-top: auto;
+  text-align: center;
+  opacity: 0.6;
+}
+
+/* Responsive */
+@media (max-width: 1000px) {
+  .dashboard {
+    flex-direction: column;
+  }
+}
